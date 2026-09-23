@@ -92,6 +92,10 @@
 
   <form id="form" novalidate autocomplete="off">
     <div class="field">
+      <label>Наименование объекта</label>
+      <input type="text" id="objectName" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false">
+    </div>
+    <div class="field">
       <label>Адрес объекта</label>
       <input type="text" id="address" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false">
     </div>
@@ -714,6 +718,7 @@ function normalizePhone(s) {
   return '+' + d;
 }
 
+const objectNameEl = document.getElementById('objectName');
 const addressEl = document.getElementById('address');
 const phoneEl   = document.getElementById('phone');
 const modelEl   = document.getElementById('meterModel');
@@ -772,7 +777,7 @@ function renderPhotos() {
 }
 
 function clearForm() {
-  addressEl.value = ''; phoneEl.value = ''; modelEl.value = '';
+  objectNameEl.value = ''; addressEl.value = ''; phoneEl.value = ''; modelEl.value = '';
   document.getElementById('comment').value = '';
   photos.forEach(p => { try { URL.revokeObjectURL(p.url); } catch(e){} });
   photos.length = 0; renderPhotos();
@@ -795,17 +800,19 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (submitBtn.disabled) return;
 
+  const objectName = objectNameEl.value.trim();
   const address    = normalizeAddress(addressEl.value);
   const phone      = normalizePhone(phoneEl.value);
   const meterModel = modelEl.value.trim().toUpperCase();
   const comment    = document.getElementById('comment').value.trim();
   const files      = photos.map(p => p.file);
 
+  objectNameEl.value = objectName;
   addressEl.value = address;
   phoneEl.value   = phone;
   modelEl.value   = meterModel;
 
-  if (!address && !phone && !meterModel && !comment && files.length === 0) {
+  if (!objectName && !address && !phone && !meterModel && !comment && files.length === 0) {
     showToast('Заполните хотя бы одно поле');
     return;
   }
@@ -818,16 +825,17 @@ form.addEventListener('submit', async (e) => {
   /* 2. Формируем текст — координаты из кэша (если есть) */
   const c = window.getCoords ? window.getCoords() : null;
   const header = requestNumber !== null
-    ? `🔧 *Заявка №${requestNumber}*`
-    : '🔧 *НОВАЯ ЗАЯВКА*';
+    ? `*Заявка №${requestNumber}*`
+    : '*НОВАЯ ЗАЯВКА*';
 
   const buildMessage = (coords) => {
     const lines = [header, ''];
-    if (address)    { lines.push('📍 *Адрес:*');       lines.push(address);    lines.push(''); }
-    if (phone)      { lines.push('📞 *Телефон:*');     lines.push(phone);      lines.push(''); }
-    if (meterModel) { lines.push('⚙️ *Счётчик:*');     lines.push(meterModel); lines.push(''); }
-    if (comment)    { lines.push('📝 *Комментарий:*'); lines.push(comment);    lines.push(''); }
-    if (coords)     { lines.push('🗺 *Локация:*');     lines.push(window.yandexLink(coords.lat, coords.lon)); lines.push(''); }
+    if (objectName) { lines.push('*Объект:*');          lines.push(objectName); lines.push(''); }
+    if (address)    { lines.push('*Адрес:*');           lines.push(address);    lines.push(''); }
+    if (phone)      { lines.push('*Телефон:*');         lines.push(phone);      lines.push(''); }
+    if (meterModel) { lines.push('*Счётчик:*');         lines.push(meterModel); lines.push(''); }
+    if (comment)    { lines.push('*Комментарий:*');     lines.push(comment);    lines.push(''); }
+    if (coords)     { lines.push('*Координаты:*');      lines.push(window.yandexLink(coords.lat, coords.lon)); lines.push(''); }
     return lines.join('\n').trim();
   };
 
@@ -855,7 +863,7 @@ form.addEventListener('submit', async (e) => {
   /* 3. Формируем payload */
   const payload = {
     number: requestNumber,
-    address: address, phone: phone, meterModel: meterModel, comment: comment,
+    objectName: objectName, address: address, phone: phone, meterModel: meterModel, comment: comment,
     lat: sendCoords ? sendCoords.lat : null,
     lon: sendCoords ? sendCoords.lon : null,
     yandexLink: sendCoords ? window.yandexLink(sendCoords.lat, sendCoords.lon) : null,
