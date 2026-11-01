@@ -1,0 +1,21 @@
+{
+  "id": "./",
+  "name": "Коммерция — фотоотчёт",
+  "short_name": "Коммерция",
+  "description": "Фотоотчёты, архивы и учёт материалов",
+  "lang": "ru",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6f9",
+  "theme_color": "#2b7a4b",
+  "icons": [
+    {
+      "src": "./icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
