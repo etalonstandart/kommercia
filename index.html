@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="Коммерция">
   <link rel="apple-touch-icon" href="icon.png">
   
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="html5-qrcode.min.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -42,7 +42,7 @@
     button:active { transform: scale(0.98); background: #1f5a3b; }
     button:disabled { background: #cbd5e1; color: #94a3b8; cursor: not-allowed; transform: none; }
     
-    /* Стили новых кнопок действий */
+    /* Стили кнопок действий */
     button.action-btn-outline { background: transparent; color: #334155; border: 1px solid #cbd5e1; box-shadow: none; font-weight: 600; }
     button.action-btn-outline:active { background: #f8fafc; }
     button.action-btn-danger { background: #fef2f2; color: #ef4444; border: 1px solid #fca5a5; box-shadow: none; font-weight: 600; }
@@ -129,7 +129,7 @@
     .radio-card { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #cbd5e1; padding: 10px 8px; border-radius: 8px; font-size: 0.9rem; color: #334155; cursor: pointer; }
     .radio-card input[type="radio"] { width: 18px; height: 18px; accent-color: #2b7a4b; flex-shrink: 0; margin: 0; }
 
-    /* Добавленные классы для модального поиска модели */
+    /* Классы для модального поиска модели */
     .dynamic-input-row { display: flex; gap: 8px; margin-bottom: 8px; }
     .dynamic-input-row input { flex-grow: 1; padding: 8px 12px; border-radius: 10px; font-size: 0.9rem; }
     .model-select-btn { flex-shrink: 0; width: 140px; padding: 8px; border-radius: 10px; font-size: 0.85rem; background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1; box-shadow: none; display: flex; justify-content: space-between; align-items: center; }
@@ -217,7 +217,7 @@
         <div style="margin-top: 16px; border-top: 1px solid #cbd5e1; padding-top: 12px;">
           <label class="field-label required" style="font-size: 0.85rem; color: #0f2d19; margin-bottom: 8px;">Фото газовых приборов</label>
           <div class="media-row" id="gasPhotosRow" style="min-height: 70px;">
-            </div>
+          </div>
         </div>
       </div>
 
@@ -350,7 +350,7 @@
     </div>
   </div>
 
-  <footer>iPhone PWA | Версия 1.0.5</footer>
+  <footer>iPhone PWA | Версия 2.0</footer>
 </div>
 
 <div id="photoModal" class="modal">
@@ -361,6 +361,7 @@
 <div id="scannerModal">
   <div id="scannerModalClose">&times;</div>
   <div id="reader"></div>
+  <button type="button" id="scannerTorchBtn" class="secondary" disabled style="max-width: 500px; margin-top: 14px;">Включить фонарик</button>
   <div class="scanner-tip">Держите телефон на расстоянии 15–20 см от кода.<br>Приложение само приблизит изображение для лучшего фокуса.</div>
 </div>
 
@@ -474,8 +475,6 @@
     document.body.scrollTop = 0;
   }
 
-  // Все данные приложения хранятся в IndexedDB. localStorage читается только
-  // один раз для миграции старого ФИО монтажника из предыдущих версий PWA.
   const settingsCache = Object.create(null);
   let db = null;
   let dbReadyResolve;
@@ -580,10 +579,8 @@
     try {
       if (typeof navigator.storage.persisted === 'function' && await navigator.storage.persisted()) return true;
       const granted = await navigator.storage.persist();
-      console.info('Постоянное хранилище PWA:', granted ? 'разрешено' : 'не предоставлено браузером');
       return Boolean(granted);
     } catch (err) {
-      console.warn('Не удалось запросить постоянное хранилище:', err);
       return false;
     }
   }
@@ -633,7 +630,6 @@
       .then(() => (typeof firebase !== 'undefined' && typeof firebase.database === 'function' ? true : loadScript(databaseUrl)))
       .then(() => initFirebase())
       .catch(err => {
-        console.warn('Firebase SDK пока недоступен; локальная очередь сохранена:', err);
         if (firebaseSdkRetryTimer) clearTimeout(firebaseSdkRetryTimer);
         firebaseSdkRetryTimer = setTimeout(() => {
           firebaseSdkRetryTimer = null;
@@ -668,7 +664,6 @@
         syncPendingRecords();
       }
     } catch (err) {
-      console.error('Не удалось инициализировать Firebase:', err);
       pendingSyncRequested = true;
     }
   }
@@ -707,8 +702,6 @@
         const pendingReq = pendingStore.getAll();
         pendingReq.onsuccess = () => {
           try {
-            // Считаем отчёт синхронизированным только когда ушли и карточка
-            // отчёта, и все связанные операции (например, автосписание счётчика).
             const stillPending = (pendingReq.result || []).some(item =>
               item.data && item.data.reportId === rid
             );
@@ -778,19 +771,15 @@
           if (!record || !record.data) throw new Error('Повреждённая запись очереди синхронизации');
           const path = record.customPath || (record.data.reportId ? 'bot_installations/' + record.data.reportId : '');
           if (!path) throw new Error('У записи очереди отсутствует путь Firebase');
-          // Firebase set() идемпотентен для одного и того же пути и содержимого.
-          // Если локальное подтверждение упадёт, запись останется в outbox и будет повторена.
           await fbDb.ref(path).set(record.data);
           await acknowledgeSyncedRecord(record);
           syncRetryCount = 0;
         } catch (err) {
-          console.warn('Firebase sync err; запись оставлена в локальной очереди:', err);
           hadErrors = true;
         }
       }
       updateReportsCounters();
     } catch (err) {
-      console.error('syncPendingRecords general error:', err);
       hadErrors = true;
     } finally {
       isSyncing = false;
@@ -848,21 +837,10 @@
           store.add(record);
         });
       } catch (err) {
-        console.error('Не удалось записать очередь синхронизации:', err);
-        // Любая ошибка запроса/добавления должна откатить всю транзакцию.
         try { getAllReq.source.transaction.abort(); } catch (_) {}
       }
     };
-    // Ошибка запроса IndexedDB по умолчанию прерывает транзакцию.
     getAllReq.onerror = () => {};
-  }
-
-  async function enqueuePendingRecords(records) {
-    if (!db) throw new Error('IndexedDB ещё не готова');
-    const tx = db.transaction('pending_sync', 'readwrite');
-    queueRecordsInTransaction(tx.objectStore('pending_sync'), records);
-    await idbTransactionDone(tx);
-    updateReportsCounters();
   }
 
   function uniqueArchiveName(baseName, existingNames) {
@@ -890,11 +868,10 @@
       }
       const freeMb = Math.floor(freeBytes / (1024 * 1024));
       if (freeBytes < 100 * 1024 * 1024) {
-        showToast(`Внимание: свободно около ${freeMb} МБ. Архив будет сохранён, но рекомендуется освободить память iPhone.`);
+        showToast(`Внимание: свободно около ${freeMb} МБ. Рекомендуется освободить память.`);
       }
     } catch (err) {
       if (err && err.message && err.message.startsWith('Недостаточно свободного места')) throw err;
-      console.warn('Оценка квоты хранилища недоступна:', err);
     }
   }
 
@@ -911,8 +888,8 @@
       let transactionError = null;
 
       tx.oncomplete = () => resolve(committedName);
-      tx.onerror = () => reject(transactionError || tx.error || new Error('Не удалось сохранить архив и очередь синхронизации'));
-      tx.onabort = () => reject(transactionError || tx.error || new Error('Сохранение архива отменено браузером'));
+      tx.onerror = () => reject(transactionError || tx.error || new Error('Не удалось сохранить архив'));
+      tx.onabort = () => reject(transactionError || tx.error || new Error('Сохранение архива отменено'));
 
       const namesReq = archiveStore.getAllKeys();
       namesReq.onsuccess = () => {
@@ -948,7 +925,7 @@
           }
 
           queueRecordsInTransaction(pendingStore, options.pendingRecords);
-          // Локальный баланс обновляется в том же commit, что архив, outbox и удаление черновика.
+          
           const localInventoryOps = (options.pendingRecords || [])
             .filter(item => item && item.customPath && item.customPath.startsWith('inventory_operations/') && item.data &&
               item.data.installer === options.installerName)
@@ -963,7 +940,6 @@
             };
             cacheReq.onerror = () => { transactionError = cacheReq.error; try { tx.abort(); } catch (_) {} };
           }
-          // Архив, очередь Firebase, локальный баланс и удаление черновика — единый commit.
           draftStore.delete('current');
           photoStore.delete('current');
         } catch (err) {
@@ -983,9 +959,8 @@
     let index = 0;
     let length = u8Arr.length;
     let result = '';
-    let slice;
     while (index < length) {
-      slice = u8Arr.subarray(index, Math.min(index + CHUNK_SIZE, length));
+      let slice = u8Arr.subarray(index, Math.min(index + CHUNK_SIZE, length));
       result += String.fromCharCode.apply(null, slice);
       index += CHUNK_SIZE;
     }
@@ -1016,9 +991,6 @@
     if (!database.objectStoreNames.contains('photo_data')) database.createObjectStore('photo_data', { keyPath: 'id' });
     if (!database.objectStoreNames.contains('inventory_cache')) database.createObjectStore('inventory_cache', { keyPath: 'id' });
 
-    // Миграция v5 -> v6: фотографии и подписи переносятся в отдельное хранилище.
-    // Старые черновики и отложенные отчёты остаются на месте; удаляются только
-    // дублирующие Base64-поля из записи метаданных после постановки в очередь IDB.
     if (e.oldVersion < 6) {
       const draftsStore = upgradeTx.objectStore('drafts');
       const photoStore = upgradeTx.objectStore('photo_data');
@@ -1056,21 +1028,16 @@
     }
   };
 
-  dbRequest.onblocked = () => {
-    console.warn('Обновление базы данных ожидает закрытия другой вкладки приложения.');
-  };
   dbRequest.onsuccess = (e) => {
     db = e.target.result;
     db.onversionchange = () => {
       try { db.close(); } catch (_) {}
-      showToast('База данных обновлена в другой вкладке. Перезагрузите приложение.');
+      showToast('База данных обновлена. Перезагрузите приложение.');
     };
     dbReadyResolve(db);
   };
   dbRequest.onerror = (e) => {
-    const error = e.target.error || new Error('IndexedDB недоступна');
-    console.error('IndexedDB error', error);
-    dbReadyReject(error);
+    dbReadyReject(e.target.error || new Error('IndexedDB недоступна'));
   };
 
   const mandatoryConfig = [
@@ -1286,8 +1253,7 @@
       state.signatureDataUrl = previousSignature;
       updateMainValidation();
       validateForm();
-      console.error('Не удалось сохранить подпись:', err);
-      showToast('Подпись не сохранена. Предыдущая сохранённая подпись оставлена без изменений. Повторите попытку.');
+      showToast('Подпись не сохранена. Повторите попытку.');
     }
   });
 
@@ -1337,7 +1303,6 @@
     }
   }
 
-
   let isAppInitialized = false;
   async function initApp() {
     if (isAppInitialized) return;
@@ -1376,13 +1341,12 @@
           try {
             const recs = await idbGetAll('pending_sync');
             if (recs.length > 0) syncPendingRecords();
-          } catch (err) { console.warn('Проверка очереди синхронизации:', err); }
+          } catch (err) {}
         }, 15000);
       }
       scrollToTop();
     } catch (err) {
-      console.error('Не удалось запустить PWA:', err);
-      showToast('Не удалось открыть локальную базу данных. Не очищайте данные Safari; перезагрузите приложение и проверьте свободное место.');
+      showToast('Не удалось открыть базу данных. Перезагрузите приложение.');
     }
   }
 
@@ -1391,17 +1355,50 @@
   } else { initApp(); }
 
   if ('serviceWorker' in navigator && window.isSecureContext) {
-    navigator.serviceWorker.register('./sw.js').catch(err => console.warn('Service Worker:', err));
+    let hadServiceWorkerController = Boolean(navigator.serviceWorker.controller);
+    let isReloadingAfterServiceWorkerUpdate = false;
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadServiceWorkerController) {
+        hadServiceWorkerController = true;
+        return;
+      }
+      if (isReloadingAfterServiceWorkerUpdate) return;
+      isReloadingAfterServiceWorkerUpdate = true;
+
+      (async () => {
+        try {
+          if (isAppInitialized && !state.archiveFresh) await flushDraftSave();
+        } catch (err) {}
+        window.location.reload();
+      })();
+    });
+
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+      .then(registration => {
+        if (registration.active) hadServiceWorkerController = true;
+        registration.update().catch(() => {});
+
+        const checkServiceWorkerUpdate = () => {
+          if (document.visibilityState === 'visible') {
+            registration.update().catch(() => {});
+          }
+        };
+
+        document.addEventListener('visibilitychange', checkServiceWorkerUpdate);
+        window.addEventListener('focus', checkServiceWorkerUpdate);
+      })
+      .catch(() => {});
   }
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && isAppInitialized && !state.archiveFresh) {
-      flushDraftSave().catch(err => console.error('Не удалось сохранить черновик при сворачивании:', err));
+      flushDraftSave().catch(() => {});
     }
   });
   window.addEventListener('pagehide', () => {
     if (isAppInitialized && !state.archiveFresh) {
-      flushDraftSave().catch(err => console.error('Не удалось сохранить черновик перед закрытием:', err));
+      flushDraftSave().catch(() => {});
     }
   });
   window.addEventListener('pageshow', () => {
@@ -1438,7 +1435,6 @@
     return 'report_' + dateStr + '_' + timeStr + '_' + rand;
   }
 
-  // Получаем объект параметров для подсчета количества изменений
   function getParametersSnapshot() {
     return {
       cityName: state.cityName || '',
@@ -1561,43 +1557,42 @@
     waiters.forEach(resolve => { try { resolve(value); } catch (_) {} });
   }
 
-  function saveDraft(isLifecycleEvent) {
-    if (!isLifecycleEvent && !isHydratingDraft) {
-      let statusChanged = false;
-      if (state.archiveFresh) {
-        // После архива текущие медиа были удалены из черновика атомарно вместе
-        // с архивированием. При новом изменении их нужно снова сохранить.
-        markPhotoDataDirty();
-        state.archiveFresh = false;
-        state.reportShared = false;
-        statusChanged = true;
-      }
-      if (state.sentToFirebase && state.creationDate) {
-        state.sentToFirebase = false;
-        statusChanged = true;
-      }
-      if (statusChanged) {
-        refreshActionButtons();
-        validateForm();
-        updateReportStatusBadge();
-      }
+  function triggerDataModified() {
+    if (isHydratingDraft) return;
+    let statusChanged = false;
+    if (state.archiveFresh) {
+      markPhotoDataDirty();
+      state.archiveFresh = false;
+      state.reportShared = false;
+      statusChanged = true;
     }
+    if (state.sentToFirebase && state.creationDate) {
+      state.sentToFirebase = false;
+      statusChanged = true;
+    }
+    if (statusChanged) {
+      refreshActionButtons();
+      validateForm();
+      updateReportStatusBadge();
+    }
+  }
+
+  function saveDraft(isLifecycleEvent) {
+    if (!isLifecycleEvent) triggerDataModified();
 
     if (!db) return Promise.reject(new Error('IndexedDB ещё не готова'));
     if (draftSaveTimer) { clearTimeout(draftSaveTimer); draftSaveTimer = null; }
 
     if (isLifecycleEvent) {
       const write = enqueueDraftWrite();
-      write.then(() => settleDraftSaveWaiters(true), err => settleDraftSaveWaiters(false));
+      write.then(() => settleDraftSaveWaiters(true), () => settleDraftSaveWaiters(false));
       return write;
     }
 
     const promise = new Promise(resolve => draftSaveWaiters.push(resolve));
     draftSaveTimer = setTimeout(() => {
       draftSaveTimer = null;
-      enqueueDraftWrite().then(() => settleDraftSaveWaiters(true)).catch(err => {
-        console.error('Ошибка сохранения черновика:', err);
-        showToast('Не удалось сохранить черновик. Проверьте свободное место на iPhone.');
+      enqueueDraftWrite().then(() => settleDraftSaveWaiters(true)).catch(() => {
         settleDraftSaveWaiters(false);
       });
     }, 350);
@@ -1740,8 +1735,7 @@
     }
 
     if (legacyInlineAssets) {
-      try { await flushDraftSave(); }
-      catch (err) { showToast('Старый черновик восстановлен, но перенос фотографий в новое хранилище не удался. Не закрывайте приложение и проверьте память.'); }
+      try { await flushDraftSave(); } catch (_) {}
     }
   }
 
@@ -1768,7 +1762,7 @@
     if (watchId !== null) navigator.geolocation.clearWatch(watchId); if (gpsTimeoutId !== null) clearTimeout(gpsTimeoutId);
     watchId = navigator.geolocation.watchPosition(
       (pos) => { state.coordinates = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy }; displayCoords.className = "geo-status-badge geo-searching"; displayCoords.innerText = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)} (~${Math.round(pos.coords.accuracy)}м) - Идет фиксация...`; saveDraft(true); },
-      (err) => { if (!state.coordinates || state.coordinates.error) { state.coordinates = { error: "Не удалось получить GPS" }; displayCoords.className = "geo-status-badge geo-error"; displayCoords.innerText = "Слабый сигнал. Ищем дальше..."; saveDraft(true); } },
+      () => { if (!state.coordinates || state.coordinates.error) { state.coordinates = { error: "Не удалось получить GPS" }; displayCoords.className = "geo-status-badge geo-error"; displayCoords.innerText = "Слабый сигнал. Ищем дальше..."; saveDraft(true); } },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
     gpsTimeoutId = setTimeout(() => {
@@ -1906,13 +1900,14 @@
         e.stopPropagation();
         const removed = state.gasPhotos.splice(pIdx, 1)[0];
         markPhotoDataDirty();
+        triggerDataModified();
         try {
           await saveDraft(true);
           renderGasPhotos(); validateForm();
         } catch (err) {
           state.gasPhotos.splice(Math.min(pIdx, state.gasPhotos.length), 0, removed);
           renderGasPhotos(); validateForm();
-          showToast('Фото не удалено: не удалось сохранить изменение. Исходное фото восстановлено.');
+          showToast('Фото не удалено: ошибка сохранения.');
         }
       };
       pContainer.appendChild(img); pContainer.appendChild(delBtn); row.appendChild(pContainer);
@@ -1921,23 +1916,57 @@
 
   let html5QrCode = null;
   let scannerBusy = false;
+  let scannerTorchOn = false;
+
+  function updateScannerTorchButton() {
+    const torchButton = document.getElementById('scannerTorchBtn');
+    if (!torchButton) return;
+    torchButton.disabled = !html5QrCode || !html5QrCode.isScanning;
+    torchButton.textContent = scannerTorchOn ? 'Выключить фонарик' : 'Включить фонарик';
+  }
+
+  async function toggleScannerTorch() {
+    if (!html5QrCode || !html5QrCode.isScanning) return;
+    if (typeof html5QrCode.applyVideoConstraints !== 'function') {
+      showToast('Фонарик недоступен в этом браузере или на этом устройстве.');
+      return;
+    }
+
+    const nextTorchState = !scannerTorchOn;
+    try {
+      await html5QrCode.applyVideoConstraints({
+        advanced: [{ torch: nextTorchState }]
+      });
+      scannerTorchOn = nextTorchState;
+      updateScannerTorchButton();
+    } catch (err) {
+      showToast('Фонарик недоступен в этом браузере или на этом устройстве.');
+    }
+  }
+
+  document.getElementById('scannerTorchBtn').addEventListener('click', toggleScannerTorch);
+
   async function stopWebScanner() {
     const modal = document.getElementById('scannerModal');
     try {
       if (html5QrCode && html5QrCode.isScanning) await html5QrCode.stop();
       if (html5QrCode) await html5QrCode.clear();
-    } catch (err) { console.warn('Scanner stop:', err); }
+    } catch (err) {}
     html5QrCode = null;
     scannerBusy = false;
+    scannerTorchOn = false;
+    updateScannerTorchButton();
     modal.style.display = 'none';
   }
   async function startBarcodeScan(onSuccess) {
     if (scannerBusy) return;
     if (typeof Html5Qrcode === 'undefined') {
-      showToast('Библиотека сканера не загружена. Проверьте установку PWA.'); return;
+      showToast('Библиотека сканера не найдена локально.'); return;
     }
-    if (!window.isSecureContext) { showToast('Для камеры требуется HTTPS.'); return; }
+    if (!window.isSecureContext) { showToast('Для камеры требуется защищенный режим.'); return; }
     scannerBusy = true;
+    scannerTorchOn = false;
+    updateScannerTorchButton();
     document.getElementById('scannerModal').style.display = 'flex';
     try {
       html5QrCode = new Html5Qrcode('reader');
@@ -1954,10 +1983,10 @@
         scannerBusy = false;
         stopWebScanner().then(() => onSuccess(decodedText));
       }, () => {});
+      updateScannerTorchButton();
     } catch (err) {
       await stopWebScanner();
-      showToast('Не удалось открыть камеру. Разрешите доступ в Safari и используйте HTTPS.');
-      console.error(err);
+      showToast('Не удалось открыть камеру для сканирования.');
     }
   }
   document.getElementById('scannerModalClose').addEventListener('click', stopWebScanner);
@@ -1988,6 +2017,7 @@
       }
       state.oldMeterCount--;
       markPhotoDataDirty();
+      triggerDataModified();
       try {
         await saveDraft(true);
         renderChecklist();
@@ -1996,7 +2026,7 @@
         Object.assign(state, previous);
         renderChecklist();
         validateForm();
-        showToast('Изменение не сохранено. Данные старого счётчика и фотографии восстановлены.');
+        showToast('Изменение не сохранено.');
       }
   };
 
@@ -2888,7 +2918,7 @@
       };
       img.onerror = () => {
         URL.revokeObjectURL(objectUrl);
-        reject(new Error('iPhone не смог прочитать это изображение. Попробуйте сохранить его в формате JPEG.'));
+        reject(new Error('Не удалось прочитать изображение.'));
       };
       img.src = objectUrl;
     });
@@ -2907,10 +2937,7 @@
     globalFileInput.disabled = true;
     let addedCount = 0;
     let failedCount = 0;
-    let persistenceFailed = false;
     try {
-      // Обрабатываем по одному файлу: iPhone не держит одновременно в памяти
-      // все оригиналы. Каждый готовый JPEG записывается в IndexedDB до следующего.
       for (const file of files) {
         try {
           const photo = await compressImageFile(file);
@@ -2925,9 +2952,10 @@
             else throw new Error('Неизвестная группа счётчика.');
             targetList.push(photo);
           } else {
-            throw new Error('Не удалось определить раздел для фотографии.');
+            throw new Error('Не удалось определить раздел.');
           }
           markPhotoDataDirty();
+          triggerDataModified();
           addedCount++;
           try {
             await flushDraftSave();
@@ -2935,14 +2963,11 @@
             const insertedAt = targetList.lastIndexOf(photo);
             if (insertedAt >= 0) targetList.splice(insertedAt, 1);
             addedCount--;
-            persistenceFailed = true;
-            console.error('Фотография не прошла фиксацию в IndexedDB; снимок удалён из временного состояния:', saveErr);
-            showToast('Не удалось сохранить фото в память iPhone. Это фото не добавлено; предыдущие сохранённые данные сохранены.');
+            showToast('Не удалось сохранить фото. Проверьте память.');
             break;
           }
         } catch (fileErr) {
           failedCount++;
-          console.warn('Ошибка обработки фотографии:', fileErr);
         }
       }
     } finally {
@@ -2956,8 +2981,9 @@
       validateForm();
     }
 
-    if (failedCount > 0) showToast(`Не удалось обработать фотографий: ${failedCount}. Успешно добавлено: ${addedCount}.`);
-    else if (addedCount > 0 && !persistenceFailed) showToast(`Фотографий сохранено: ${addedCount}.`);
+    if (failedCount > 0) {
+      showToast(`Не удалось обработать фотографий: ${failedCount}`);
+    }
   });
 
   async function removePhoto(configIdx, photoIdx, m = 1) {
@@ -2969,6 +2995,7 @@
     if (!targetList || !targetList[photoIdx]) return;
     const removed = targetList.splice(photoIdx, 1)[0];
     markPhotoDataDirty();
+    triggerDataModified();
     try {
       await saveDraft(true);
       if (configIdx === 'gas') renderGasPhotos(); else renderChecklist();
@@ -2977,7 +3004,7 @@
       targetList.splice(Math.min(photoIdx, targetList.length), 0, removed);
       if (configIdx === 'gas') renderGasPhotos(); else renderChecklist();
       validateForm();
-      showToast('Фото не удалено: изменение не удалось сохранить. Исходное фото восстановлено.');
+      showToast('Фото не удалено: ошибка сохранения.');
     }
   }
 
@@ -3036,6 +3063,12 @@
     generateBtn.disabled = !(mainFieldsValid && allPhotosExist && m1 && m2 && m3 && m4 && m5 && m6 && m7); 
   }
 
+  function getAppVersionFromFooter() {
+    const footerText = document.querySelector('footer')?.textContent || '';
+    const match = footerText.match(/Версия\s+([^\s|]+)/i);
+    return match ? match[1].trim() : 'не указана';
+  }
+
   function buildEmailBodyText() {
     const gps = (state.coordinates && !state.coordinates.error) ? `${state.coordinates.lat.toFixed(6)}, ${state.coordinates.lng.toFixed(6)}` : 'Не определены';
     const datetime = formatDateTime(state.creationDate); 
@@ -3057,7 +3090,7 @@
         if (m < state.oldMeterCount) oldMeterText += "--------------------\n";
     }
 
-    let text = `• Город: ${state.cityName || 'не указан'}\n• Объект: ${state.objectName}\n• Адрес: ${state.address}\n• Расположение: ${state.uirgLocation || 'не указано'}\n• Мощность: ${state.totalPower} m3/ч\n• GPS: ${gps}\n• Должность: ${state.consumerRole}\n• Потребитель: ${state.consumerName}\n• ЛС: ${state.accountNumber}\n--------------------\n${oldMeterText}--------------------\n• Модель нового: ${state.meterModel}\n• № нового: ${state.serialNumber}\n• Направление: ${state.newGasDirection || 'нет'}\n• SIM: ${state.simCardNumber || 'нет'}\n--------------------\n• Комментарий: ${state.comment || 'нет'}\n--------------------\n• Монтажник: ${state.installerName}\n• ${datetime}`;
+    let text = `• Город: ${state.cityName || 'не указан'}\n• Объект: ${state.objectName}\n• Адрес: ${state.address}\n• Расположение: ${state.uirgLocation || 'не указано'}\n• Мощность: ${state.totalPower} m3/ч\n• GPS: ${gps}\n• Должность: ${state.consumerRole}\n• Потребитель: ${state.consumerName}\n• ЛС: ${state.accountNumber}\n--------------------\n${oldMeterText}--------------------\n• Модель нового: ${state.meterModel}\n• № нового: ${state.serialNumber}\n• Направление: ${state.newGasDirection || 'нет'}\n• SIM: ${state.simCardNumber || 'нет'}\n--------------------\n• Комментарий: ${state.comment || 'нет'}\n--------------------\n• Монтажник: ${state.installerName}\n• ${datetime}\n• Версия приложения: ${getAppVersionFromFooter()}`;
     return text;
   }
 
@@ -3065,8 +3098,6 @@
     if (generateBtn.disabled) return;
     const previousReportId = state.reportId;
     const reportScreen = document.getElementById('checklistScreen');
-    // Не разрешаем менять отчёт, пока ZIP собирается и сохраняется транзакцией.
-    // Иначе новые поля могли бы попасть в черновик, а старый снимок — в архив.
     if (reportScreen) {
       reportScreen.style.pointerEvents = 'none';
       reportScreen.setAttribute('aria-busy', 'true');
@@ -3075,7 +3106,6 @@
     generateBtn.disabled = true;
 
     try {
-      // Убедиться, что все поля, фото и подпись уже подтверждены IndexedDB.
       await flushDraftSave();
       const emailBodyText = buildEmailBodyText();
       const filesToPack = [];
@@ -3122,7 +3152,7 @@
         const nameBytes = encoder.encode(file.name);
         const bodyBytes = file.blob;
         if (bodyBytes.length > 0xFFFFFFFF || offset > 0xFFFFFFFF) {
-          throw new Error('Размер отчёта превышает предел формата ZIP. Уменьшите количество или размер фотографий.');
+          throw new Error('Размер отчёта превышает предел ZIP.');
         }
         let crc = 0xFFFFFFFF;
         for (let b = 0; b < bodyBytes.length; b++) {
@@ -3134,7 +3164,7 @@
         const lfh = new Uint8Array(30 + nameBytes.length);
         lfh.set([
           0x50, 0x4B, 0x03, 0x04, 10, 0,
-          0, 8, // UTF-8 names
+          0, 8,
           0, 0, 0, 0, 0, 0,
           crc & 0xFF, (crc >>> 8) & 0xFF, (crc >>> 16) & 0xFF, (crc >>> 24) & 0xFF,
           bodyBytes.length & 0xFF, (bodyBytes.length >>> 8) & 0xFF, (bodyBytes.length >>> 16) & 0xFF, (bodyBytes.length >>> 24) & 0xFF,
@@ -3147,7 +3177,7 @@
         const cdh = new Uint8Array(46 + nameBytes.length);
         cdh.set([
           0x50, 0x4B, 0x01, 0x02, 20, 0, 10, 0,
-          0, 8, // UTF-8 names
+          0, 8,
           0, 0, 0, 0, 0, 0,
           crc & 0xFF, (crc >>> 8) & 0xFF, (crc >>> 16) & 0xFF, (crc >>> 24) & 0xFF,
           bodyBytes.length & 0xFF, (bodyBytes.length >>> 8) & 0xFF, (bodyBytes.length >>> 16) & 0xFF, (bodyBytes.length >>> 24) & 0xFF,
@@ -3162,7 +3192,7 @@
       }
 
       const centralDirectoryLength = centralDir.reduce((total, part) => total + part.length, 0);
-      if (centralDirectoryLength > 0xFFFFFFFF || offset > 0xFFFFFFFF) throw new Error('Архив слишком велик для ZIP без расширения ZIP64.');
+      if (centralDirectoryLength > 0xFFFFFFFF || offset > 0xFFFFFFFF) throw new Error('Архив слишком велик.');
       const endRecord = new Uint8Array(22);
       endRecord.set([
         0x50, 0x4B, 0x05, 0x06, 0, 0, 0, 0,
@@ -3179,7 +3209,7 @@
       centralDir.forEach(part => { finalZipUint8.set(part, currentPos); currentPos += part.length; });
       finalZipUint8.set(endRecord, currentPos);
 
-      generateBtn.innerText = '⏳ Проверка локальной памяти...';
+      generateBtn.innerText = '⏳ Проверка памяти...';
       const base64Data = uint8ToBase64(finalZipUint8);
       await checkStorageBeforeArchive(base64Data.length);
 
@@ -3189,12 +3219,11 @@
         shouldOverwrite = countParameterChanges(state.lastSavedSnapshot, currentParams) <= 4;
       }
 
-      // Получаем реальные ключи IndexedDB, а не полагаемся на экран архивов.
       const existingNames = new Set((await idbGetAllKeys('archives')).map(String));
       const previousArchive = shouldOverwrite ? await idbGet('archives', state.lastSavedZipName) : null;
       const canOverwrite = Boolean(previousArchive && (!previousArchive.reportId || previousArchive.reportId === state.reportId));
 
-      const reportIdForSave = (!canOverwrite && state.lastSavedSnapshot) ? generateReportId() : (state.reportId || generateReportId());
+      const reportIdForSave = (shouldOverwrite && state.reportId) ? state.reportId : (state.reportId || generateReportId());
       state.reportId = reportIdForSave;
       const d = new Date(state.creationDate || Date.now());
       const dateStr = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
@@ -3264,7 +3293,7 @@
         });
       }
 
-      generateBtn.innerText = '⏳ Надёжное сохранение архива...';
+      generateBtn.innerText = '⏳ Сохранение архива...';
       const archiveDate = new Date().toISOString();
       const savedName = await saveArchiveAndOutboxAtomically({
         requestedName,
@@ -3307,7 +3336,7 @@
       updateReportStatusBadge();
       updateReportsCounters();
       syncPendingRecords();
-      showToast('Архив и очередь синхронизации надёжно сохранены на iPhone.');
+      showToast('Архив сформирован и сохранен.');
       if (reportScreen) {
         reportScreen.style.pointerEvents = '';
         reportScreen.removeAttribute('aria-busy');
@@ -3318,13 +3347,8 @@
         reportScreen.removeAttribute('aria-busy');
       }
       state.reportId = previousReportId;
-      console.error('Ошибка формирования/сохранения архива:', err);
       const message = err && err.message ? err.message : 'Неизвестная ошибка';
-      if (err && (err.name === 'QuotaExceededError' || /quota|storage|места/i.test(message))) {
-        showToast('Архив не сохранён: недостаточно памяти. Черновик и фотографии оставлены без изменений. Освободите место и повторите попытку.');
-      } else {
-        showToast('Архив не сохранён: ' + message + '. Черновик сохранён, материалы не списаны.');
-      }
+      showToast('Архив не сохранён: ' + message);
       resetGenBtn();
     }
   });
@@ -3335,7 +3359,7 @@
   }
 
   async function markArchiveShared(archiveName) {
-    if (!db || !archiveName) throw new Error('Архив не найден в IndexedDB');
+    if (!db || !archiveName) throw new Error('Архив не найден');
     const tx = db.transaction('archives', 'readwrite');
     const store = tx.objectStore('archives');
     const req = store.get(archiveName);
@@ -3362,8 +3386,7 @@
     await shareFiles([fileTarget], `Счетчик № ${state.serialNumber}`, null, async () => {
       try { await markArchiveShared(fileTarget); }
       catch (err) {
-        console.error('Файл передан, но статус отправки не сохранился:', err);
-        showToast('Файл передан в меню отправки, но статус не удалось сохранить на iPhone.');
+        showToast('Статус отправки не сохранился.');
       }
     });
   });
@@ -3385,9 +3408,9 @@
     const m3 = parseFloat(String(state.powerM3).replace(',', '.')) || 0;
     const pg = parseFloat(state.powerPg) || 0;
     if (!state.cityName || !state.objectName || !state.address || !state.uirgLocation || !state.installerName || !state.meterModel || !state.consumerRole || !state.consumerName || !state.accountNumber) {
-      showToast('Заполните ВСЕ обязательные поля, выделенные красной рамкой!'); updateMainValidation(); return;
+      showToast('Заполните ВСЕ обязательные поля!'); updateMainValidation(); return;
     }
-    if (kw === 0 && m3 === 0 && pg === 0) { showToast('Для подсчета мощности заполните хотя бы одно из полей (кВт, m³/ч или Плита)!'); return; }
+    if (kw === 0 && m3 === 0 && pg === 0) { showToast('Заполните хотя бы одно поле мощности!'); return; }
     if (!state.gasPhotos.length) { showToast('Добавьте хотя бы одно фото газовых приборов!'); return; }
     if (!state.signatureDataUrl) { showToast('Потребитель должен поставить подпись!'); return; }
 
@@ -3397,9 +3420,8 @@
       state.creationDate = new Date().toISOString();
       await flushDraftSave();
     } catch (err) {
-      console.error('Не удалось сохранить данные перед началом отчёта:', err);
       state.creationDate = null;
-      showToast('Отчёт не запущен: не удалось надёжно сохранить данные и фотографии на iPhone. Освободите память и повторите попытку.');
+      showToast('Отчёт не запущен: ошибка сохранения.');
       return;
     }
 
@@ -3416,14 +3438,10 @@
 
   async function performReset() {
     try {
-      // Если архив только что успешно зафиксирован, его транзакция уже удалила
-      // черновик и медиаданные. Не создаём перед сбросом пустую/неполную копию.
-      // Во всех остальных случаях сначала сохраняем последние изменения.
       if (!state.archiveFresh) await flushDraftSave();
       await clearDraft();
     } catch (err) {
-      console.error('Не удалось очистить черновик:', err);
-      showToast('Не удалось завершить отчёт: черновик и фотографии не удалены. Проверьте память iPhone.');
+      showToast('Ошибка сброса черновика.');
       return false;
     }
 
@@ -3497,10 +3515,9 @@
       await performReset();
       updatePostponedCount();
       updateReportsCounters();
-      showToast('Отчёт, фотографии и подпись сохранены в отложенные.');
+      showToast('Отчёт перемещен в отложенные.');
     } catch (err) {
-      console.error('Не удалось отложить отчёт:', err);
-      showToast('Не удалось сохранить отложенный отчёт. Текущий отчёт и фотографии оставлены без изменений.');
+      showToast('Не удалось отложить отчёт.');
     }
   });
 
@@ -3564,7 +3581,6 @@
                   await idbTransactionDone(tx);
                   loadPostponedList(); updatePostponedCount(); updateReportsCounters();
                 } catch (err) {
-                  console.error('Ошибка удаления отложенного отчёта:', err);
                   showToast('Не удалось удалить отложенный отчёт.');
                 }
             });
@@ -3605,8 +3621,7 @@
       updatePostponedCount();
       updateReportsCounters();
     } catch (err) {
-      console.error('Не удалось восстановить отложенный отчёт:', err);
-      showToast('Не удалось открыть отчёт. Его данные оставлены в отложенных.');
+      showToast('Не удалось открыть отложенный отчёт.');
     }
   }
 
@@ -3648,8 +3663,7 @@
       await saveDraft(true);
       validateForm();
     } catch (err) {
-      console.error('Не удалось сохранить профиль монтажника:', err);
-      showToast('ФИО не сохранено. Проверьте память iPhone и повторите попытку.');
+      showToast('ФИО не сохранено.');
     }
   });
 
@@ -3660,7 +3674,7 @@
 
   function detachInventoryOperationsListener() {
     if (inventoryOperationsRef && inventoryOperationsListener) {
-      try { inventoryOperationsRef.off('value', inventoryOperationsListener); } catch (err) { console.warn('Не удалось снять Firebase listener материалов:', err); }
+      try { inventoryOperationsRef.off('value', inventoryOperationsListener); } catch (_) {}
     }
     if (inventoryOperationsRef && inventoryOperationsErrorListener) {
       try { inventoryOperationsRef.off('value', inventoryOperationsErrorListener); } catch (_) {}
@@ -3696,7 +3710,7 @@
     if (!installerName) return;
     const id = 'snapshot:' + encodeURIComponent(installerName.toLocaleLowerCase('ru-RU'));
     try { await idbPut('inventory_cache', { id, installer: installerName, operations: operations || [], updatedAt: Date.now() }); }
-    catch (err) { console.warn('Не удалось обновить локальный кеш материалов:', err); }
+    catch (_) {}
   }
 
   async function loadMyInventoryOperations() {
@@ -3713,10 +3727,7 @@
       const pending = await getPendingInventoryOperations(installerName);
       state.inventoryOperations = mergeInventoryOperations(cached && cached.operations || [], pending);
       renderInventoryBalance(); renderInventoryHistory();
-    } catch (err) {
-      console.warn('Не удалось прочитать локальные материалы:', err);
-      showToast('Не удалось прочитать локальный баланс материалов. Очередь операций не удалена.');
-    }
+    } catch (_) {}
 
     if (!fbDb || !navigator.onLine) return;
     if (inventoryOperationsRef && inventoryOperationsListener && inventoryOperationsInstaller === installerName) return;
@@ -3737,13 +3748,10 @@
         state.inventoryOperations = merged;
         await persistInventoryCache(installerName, merged);
         renderInventoryBalance(); renderInventoryHistory();
-      } catch (err) {
-        console.error('Ошибка обработки Firebase материалов:', err);
-      }
+      } catch (_) {}
     };
-    inventoryOperationsErrorListener = error => {
-      console.warn('Firebase materials listener error; показывается локальный кеш:', error);
-      showToast('Нет доступа к облачной истории материалов. Показаны сохранённые операции.');
+    inventoryOperationsErrorListener = () => {
+      showToast('Нет доступа к облаку материалов. Показан локальный остаток.');
     };
     query.on('value', inventoryOperationsListener, inventoryOperationsErrorListener);
   }
@@ -3819,11 +3827,21 @@
     container.innerHTML = html;
   }
 
+  function closeMaterialsModal() {
+    const modal = document.getElementById('materialsInputModal');
+    const form = document.getElementById('materialsFormContainer');
+    if (form) form.innerHTML = '';
+    state.currentInventoryOpType = null;
+    modal.style.display = 'none';
+  }
+
   function openMaterialsInputModal(opType) {
     state.currentInventoryOpType = opType;
     const modal = document.getElementById('materialsInputModal');
     const title = document.getElementById('materialsModalTitle');
     const form = document.getElementById('materialsFormContainer');
+    form.innerHTML = '';
+    
     const titles = { receive: 'Получить материалы', transfer_out: 'Передать материалы', return: 'Вернуть на склад' };
     title.innerText = titles[opType] || 'Материалы';
     
@@ -3897,7 +3915,7 @@
 
   async function saveInventoryOpsToPending(opDatas) {
     const list = (Array.isArray(opDatas) ? opDatas : [opDatas]).filter(Boolean);
-    if (!db || !list.length) throw new Error('Нет операций для локального сохранения');
+    if (!db || !list.length) throw new Error('Нет операций для сохранения');
     const records = list.map(opData => ({
       data: opData,
       customPath: 'inventory_operations/' + opData.opId,
@@ -3921,7 +3939,6 @@
           cacheStore.put({ id: cacheId, installer: installerName, operations: merged, updatedAt: Date.now() });
           if (installerName === currentInstaller) currentInstallerSnapshot = merged;
         } catch (err) {
-          console.error('Не удалось обновить кеш материалов:', err);
           try { cacheReq.source.transaction.abort(); } catch (_) {}
         }
       };
@@ -3933,7 +3950,6 @@
       renderInventoryBalance(); renderInventoryHistory();
     }
     updateReportsCounters();
-    // Только после commit локального outbox и балансов разрешаем сетевую отправку.
     if (navigator.onLine) syncPendingRecords();
     return true;
   }
@@ -3942,9 +3958,7 @@
     return saveInventoryOpsToPending([opData]);
   }
 
-  document.getElementById('materialsModalCancelBtn').addEventListener('click', () => {
-    document.getElementById('materialsInputModal').style.display = 'none';
-  });
+  document.getElementById('materialsModalCancelBtn').addEventListener('click', closeMaterialsModal);
 
   document.getElementById('materialsModalSaveBtn').addEventListener('click', async () => {
     const opType = state.currentInventoryOpType;
@@ -3988,11 +4002,10 @@
     }
     try {
       await saveInventoryOpsToPending(opsToSave);
-      document.getElementById('materialsInputModal').style.display = 'none';
-      showToast('Операция надёжно сохранена на iPhone и поставлена в очередь синхронизации.');
+      closeMaterialsModal();
+      showToast('Операция с материалами сохранена.');
     } catch (err) {
-      console.error('Не удалось сохранить операцию материалов:', err);
-      showToast('Операция не сохранена. Не закрывайте приложение и повторите попытку.');
+      showToast('Операция не сохранена. Повторите попытку.');
     }
   });
 
@@ -4057,10 +4070,9 @@
     
     try {
       await saveInventoryOpToPending(opData);
-      showToast('Обнуление материалов надёжно сохранено и поставлено в очередь синхронизации.');
+      showToast('Материалы обнулены.');
     } catch (err) {
-      console.error('Не удалось сохранить обнуление материалов:', err);
-      showToast('Обнуление не сохранено. Баланс не изменён; повторите попытку.');
+      showToast('Ошибка при обнулении материалов.');
     }
   }
 
@@ -4080,7 +4092,7 @@
   let savedArchives = []; let selectedArchives = new Set(); let isMultiSelectMode = false;
 
   function parseArchiveDateFromName(name) {
-    let m = String(name).match(/(\d{2})\.(\d{2})\.(\d{4})(?:_\d+)?\.zip$/i);
+    let m = String(name).match(/_(\d{2})\.(\d{2})\.(\d{4})(?:_\d+)?\.zip$/i);
     if (m) {
       return new Date(`${m[3]}-${m[2]}-${m[1]}T12:00:00`).toISOString();
     }
@@ -4094,25 +4106,23 @@
 
   function loadArchives() {
     archiveListContainer.innerHTML = '<div style="text-align:center; padding: 20px; color: #64748b;">Загрузка архивов...</div>';
-    {
-      if (!db) { archiveListContainer.innerHTML = '<div style="text-align:center; padding: 20px;">Ошибка БД</div>'; return; }
-      db.transaction("archives", "readonly").objectStore("archives").getAll().onsuccess = (e) => {
-        const raw = e.target.result || [];
-        raw.sort((a, b) => new Date(b.date) - new Date(a.date));
-        savedArchives = raw.map(a => ({
-          name: a.name,
-          nativeURL: a.name,
-          base64: a.base64,
-          text: a.text,
-          date: a.date || parseArchiveDateFromName(a.name),
-          reportId: a.reportId || '',
-          sentToFirebase: Boolean(a.sentToFirebase),
-          reportShared: Boolean(a.reportShared),
-          sharedAt: a.sharedAt || null
-        }));
-        renderArchiveList();
-      };
-    }
+    if (!db) { archiveListContainer.innerHTML = '<div style="text-align:center; padding: 20px;">Ошибка БД</div>'; return; }
+    db.transaction("archives", "readonly").objectStore("archives").getAll().onsuccess = (e) => {
+      const raw = e.target.result || [];
+      raw.sort((a, b) => new Date(b.date) - new Date(a.date));
+      savedArchives = raw.map(a => ({
+        name: a.name,
+        nativeURL: a.name,
+        base64: a.base64,
+        text: a.text,
+        date: a.date || parseArchiveDateFromName(a.name),
+        reportId: a.reportId || '',
+        sentToFirebase: Boolean(a.sentToFirebase),
+        reportShared: Boolean(a.reportShared),
+        sharedAt: a.sharedAt || null
+      }));
+      renderArchiveList();
+    };
   }
 
   function renderArchiveList() {
@@ -4175,7 +4185,7 @@
         let pressTimer;
         item.addEventListener('touchstart', () => {
           pressTimer = window.setTimeout(() => {
-            if (navigator.vibrate) { try { navigator.vibrate(50); } catch(e) {} }
+            if (navigator.vibrate) { try { navigator.vibrate(50); } catch(_) {} }
             if (!isMultiSelectMode) {
               isMultiSelectMode = true;
               toggleSelection(archiveKey, item);
@@ -4243,7 +4253,7 @@
         if (!record && typeof value === 'string') record = await idbGet('archives', value);
         if (record && record.base64) records.push(record);
       }
-      if (!records.length) { showToast('Архив не найден в локальном хранилище.'); return; }
+      if (!records.length) { showToast('Архив не найден.'); return; }
       const files = records.map(a => new File(
         [new Blob([base64ToUint8(a.base64)], { type: 'application/zip' })],
         a.name,
@@ -4253,7 +4263,7 @@
       let shareSupported = Boolean(navigator.share);
       if (shareSupported && typeof navigator.canShare === 'function') {
         try { shareSupported = navigator.canShare({ files }); }
-        catch (capabilityError) { shareSupported = false; }
+        catch (_) { shareSupported = false; }
       }
       if (shareSupported) {
         try {
@@ -4263,7 +4273,6 @@
           return;
         } catch (err) {
           if (err && err.name === 'AbortError') return;
-          console.warn('Web Share failed; используем резервное скачивание:', err);
         }
       }
       for (const file of files) {
@@ -4277,12 +4286,10 @@
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       }
-      showToast('Архив передан в загрузки. Это не подтверждает отправку получателю. При необходимости отправьте его через приложение «Файлы».');
+      showToast('Архив передан в загрузки.');
       if (isMultiSelectMode) { selectedArchives.clear(); isMultiSelectMode = false; renderArchiveList(); }
-      // Загрузка на устройство не является подтверждением отправки адресату.
     } catch (err) {
-      console.error('Ошибка подготовки архива к отправке:', err);
-      showToast('Ошибка подготовки архива: ' + (err && err.message ? err.message : 'неизвестная ошибка'));
+      showToast('Ошибка отправки архива.');
     }
   }
 
@@ -4299,7 +4306,7 @@
       });
 
     if (toDelete.length === 0) {
-      showToast("Выбранные архивы защищены от удаления (не прошло 20 дней).");
+      showToast("Архивы защищены от удаления (не прошло 20 дней).");
       return;
     }
 
@@ -4333,10 +4340,9 @@
   document.getElementById('modalClose').addEventListener('click', closeLightbox);
   modal.addEventListener('click', (e) => { if (e.target === modal || e.target === modalWrapper) closeLightbox(); });
   modal.addEventListener('touchstart', (e) => { if (e.touches.length === 2) { startDist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY); } else if (e.touches.length === 1 && scale > 1) { isDragging = true; startX = e.touches[0].pageX - posX; startY = e.touches[0].pageY - posY; } }, { passive: true });
-  modal.addEventListener('touchmove', (e) => { if (e.touches.length === 2 && startDist > 0) { const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY); scale = Math.min(Math.max(1, (dist / startDist)), 4); updateTransform(); } else if (e.touches.length === 1 && isDragging) { posX = e.touches[0].pageX - startX; posY = e.touches[0].pageY - startY; updateTransform(); } }, { passive: true });
+  modal.addEventListener('touchmove', (e) => { if (e.touches.length === 2 && startDist > 0) { const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY); scale = Math.min(Math.max(1, (dist / startDist)), 4); updateTransform(); } else if (e.touches.length === 1 && isDragging) { posX = e.touches[0].pageX - startX; posY = e.touches[0].pageY - posY; updateTransform(); } }, { passive: true });
   modal.addEventListener('touchend', (e) => { if (e.touches.length < 2) startDist = 0; if (e.touches.length === 0) isDragging = false; });
 </script>
-
 
 </body>
 </html>
